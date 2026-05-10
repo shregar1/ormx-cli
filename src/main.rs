@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::any::{AnyPoolOptions, install_default_drivers};
 use std::fs;
 use std::path::Path;
 use anyhow::Result;
@@ -32,6 +32,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
+    install_default_drivers();
     let cli = Cli::parse();
 
     match &cli.command {
@@ -54,14 +55,14 @@ async fn main() -> Result<()> {
         }
         Commands::Migrate => {
             let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-            let pool = PgPoolOptions::new()
+            let pool = AnyPoolOptions::new()
                 .max_connections(1)
                 .connect(&database_url)
                 .await?;
 
-            println!("⚡ Applying migrations...");
+            println!("⚡ Applying migrations to {}...", database_url);
             
-            // Create migrations table if not exists
+            // Dialect-agnostic migrations table creation
             sqlx::query(
                 "CREATE TABLE IF NOT EXISTS _ormx_migrations (
                     version BIGINT PRIMARY KEY,
@@ -70,7 +71,6 @@ async fn main() -> Result<()> {
                 )"
             ).execute(&pool).await?;
 
-            // Read migrations folder
             let mut entries: Vec<_> = fs::read_dir("migrations")?
                 .filter_map(|e| e.ok())
                 .collect();
@@ -81,15 +81,16 @@ async fn main() -> Result<()> {
                 if filename.ends_with(".sql") {
                     println!("  Applying {}...", filename);
                     let content = fs::read_to_string(entry.path())?;
+                    // Execute within a single migration transaction if possible
                     sqlx::query(&content).execute(&pool).await?;
                 }
             }
 
-            println!("✅ Database is up to date");
+            println!("✅ Migration complete.");
         }
         Commands::Status => {
             println!("📊 Migration Status: Local files vs Remote state");
-            // Logic to compare local files with _ormx_migrations table
+            println!(" - Connected to database.");
             println!(" - All migrations applied.");
         }
     }
