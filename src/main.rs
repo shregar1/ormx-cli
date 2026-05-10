@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 use anyhow::Result;
 use dotenvy::dotenv;
+use std::process::Command;
 
 #[derive(Parser)]
 #[command(name = "ormx")]
@@ -46,11 +47,31 @@ async fn main() -> Result<()> {
             println!("✅ Created migrations/ directory");
         }
         Commands::Makemigrations { name } => {
-            println!("🔍 Detecting model changes...");
+            println!("🔍 Analyzing Python models...");
+            
+            let output = Command::new("python3")
+                .arg("-m")
+                .arg("ormx.cli_helper")
+                .arg(".")
+                .output()?;
+
+            if !output.status.success() {
+                println!("❌ Error analyzing models: {}", String::from_utf8_lossy(&output.stderr));
+                return Ok(());
+            }
+
+            let schema_json = String::from_utf8_lossy(&output.stdout);
+            println!("✨ Found models, generating SQL...");
+            
+            // In a real implementation, we would compare this schema with the previous one
+            // For now, we generate a timestamped migration file
             let migration_name = name.clone().unwrap_or_else(|| "auto_migration".to_string());
             let timestamp = chrono::Local::now().format("%Y%m%d%H%M%S");
             let filename = format!("migrations/{}_{}.sql", timestamp, migration_name);
-            fs::write(&filename, "-- New migration\n")?;
+            
+            let sql_content = format!("-- Auto-generated migration\n-- Schema: {}\n", schema_json);
+            fs::write(&filename, sql_content)?;
+            
             println!("📝 Generated migration: {}", filename);
         }
         Commands::Migrate => {
@@ -60,9 +81,8 @@ async fn main() -> Result<()> {
                 .connect(&database_url)
                 .await?;
 
-            println!("⚡ Applying migrations to {}...", database_url);
+            println!("⚡ Applying migrations...");
             
-            // Dialect-agnostic migrations table creation
             sqlx::query(
                 "CREATE TABLE IF NOT EXISTS _ormx_migrations (
                     version BIGINT PRIMARY KEY,
@@ -81,7 +101,6 @@ async fn main() -> Result<()> {
                 if filename.ends_with(".sql") {
                     println!("  Applying {}...", filename);
                     let content = fs::read_to_string(entry.path())?;
-                    // Execute within a single migration transaction if possible
                     sqlx::query(&content).execute(&pool).await?;
                 }
             }
@@ -89,9 +108,7 @@ async fn main() -> Result<()> {
             println!("✅ Migration complete.");
         }
         Commands::Status => {
-            println!("📊 Migration Status: Local files vs Remote state");
-            println!(" - Connected to database.");
-            println!(" - All migrations applied.");
+            println!("📊 Migration Status: Connected.");
         }
     }
 
