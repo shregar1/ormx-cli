@@ -1,0 +1,2 @@
+database_url = "postgres://localhost/ormx_db"
+migrations_dir = "migrations"
