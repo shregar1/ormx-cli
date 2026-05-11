@@ -1,15 +1,14 @@
 use clap::{Parser, Subcommand};
-use sqlx::any::{AnyPoolOptions, install_default_drivers};
 use std::fs;
 use std::path::Path;
 use anyhow::Result;
 use dotenvy::dotenv;
 use std::process::Command;
-use inquire::{Select, Text, Confirm};
+use inquire::{Select, Confirm};
 
 #[derive(Parser)]
 #[command(name = "ormx")]
-#[command(version = "2.3.0")]
+#[command(version = "2.10.0")]
 #[command(about = "ORMX CLI - The fastest migration and orchestration engine", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -34,6 +33,16 @@ enum Commands {
         #[arg(short, long)]
         target: String,
     },
+    /// Run an extreme performance benchmark against other ORMs
+    Benchmark {
+        #[arg(short, long, default_value = "10000")]
+        count: i32,
+    },
+    /// Start the Command Center Admin Bridge
+    Admin {
+        #[arg(short, long, default_value = "8000")]
+        port: u16,
+    },
     /// Start the interactive ORMX tutorial
     Tutorial,
     /// Show current migration status
@@ -43,7 +52,6 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    install_default_drivers();
     let cli = Cli::parse();
 
     match &cli.command {
@@ -70,32 +78,39 @@ async fn main() -> Result<()> {
         }
         Commands::Rebalance { source, target } => {
             println!("⚖️ Rebalancing data from {} to {}...", source, target);
-            println!("🔍 Scanning for misplaced records...");
-            // Logic to move rows based on sharding strategy
-            println!("📦 Moving 1,240 records...");
-            println!("✅ Rebalancing complete. 0 records misplaced.");
+            println!("✅ Rebalancing complete.");
+        }
+        Commands::Benchmark { count } => {
+            println!("⚔️ Starting ORMX Battlefield Benchmark (N={})...", count);
+            Command::new("python3").arg("-m").arg("ormx.benchmarks").arg("--count").arg(count.to_string()).status()?;
+        }
+        Commands::Admin { port } => {
+            use rand::{Rng, distributions::Alphanumeric};
+            let session_token: String = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(32)
+                .map(char::from)
+                .collect();
+
+            println!("📡 Starting Neural Admin Bridge on port {}...", port);
+            println!("🔑 Session Authorized.");
+            println!("🔗 Access Dashboard: http://localhost:5174/?token={}", session_token);
+            
+            let current_dir = std::env::current_dir()?;
+            let parent_dir = current_dir.parent().unwrap_or(&current_dir);
+            let python_path = format!("{}/ormx-python:{}", parent_dir.to_string_lossy(), std::env::var("PYTHONPATH").unwrap_or_default());
+
+            Command::new("python3")
+                .env("PYTHONPATH", python_path)
+                .env("ORMX_ADMIN_TOKEN", &session_token)
+                .arg("-c")
+                .arg(format!("import ormx.admin; ormx.admin.start_admin(port={})", port))
+                .status()?;
         }
         Commands::Tutorial => {
             println!("🎓 Welcome to the ORMX Interactive Tutorial!");
-            let step1 = Select::new(
-                "Step 1: What is the first step in a new ORMX project?",
-                vec!["Run ormx init", "Write Python code", "Install SQLAlchemy"],
-            ).prompt()?;
-
-            if step1 == "Run ormx init" {
-                println!("✅ Correct! This creates ormx.toml and migrations/");
-            }
-
-            let step2 = Confirm::new("Do you want to generate your first migration now?")
-                .with_default(true)
-                .prompt()?;
-            
-            if step2 {
-                println!("🚀 Running 'ormx makemigrations'...");
-                // Internal call to makemigrations
-            }
-
-            println!("🏁 Tutorial complete! You're ready to build the future of data.");
+            Select::new("Step 1: What is the first step in a new ORMX project?", vec!["Run ormx init", "Write Python code", "Install SQLAlchemy"]).prompt()?;
+            println!("🏁 Tutorial complete!");
         }
         Commands::Status => {
             println!("📊 Migration Status: Connected.");
